@@ -1,0 +1,40 @@
+:root {
+    /* colours */
+    --color-bg: #f7f7f8;
+    --color-surface: #ffffff;
+    --color-text: #18181b;
+    --color-text-muted: #52525b;
+    --color-border: #d4d4d8;
+    --color-accent: #2563eb;
+
+    /* status (every status also has a text label) */
+    --status-pending: #d97706;
+    --status-approved: #16a34a;
+    --status-corrected: #7c3aed;
+    --status-carried: #0891b2;
+    --status-gap: #dc2626;
+    --status-failed: #b91c1c;
+
+    /* spacing */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --space-8: 32px;
+
+    /* radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+
+    /* type */
+    --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+    --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+    --font-size-sm: 13px;
+    --font-size-md: 15px;
+    --font-size-lg: 18px;
+    --font-size-2xl: 28px;
+
+    /* layout */
+    --content-max-width: 1280px;
+}

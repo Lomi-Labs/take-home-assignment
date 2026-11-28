@@ -1,6 +1,7 @@
 # HLD
 
-Doc extraction + review app. Upload a PDF, the LLM pulls out fields, a person checks each value against the exact quote it came from. When a new version of a doc comes in, reviews carry over for anything whose evidence didn't change.
+Doc extraction + review app. Upload a PDF, the LLM pulls out fields, a person checks each value against the exact quote
+it came from. When a new version of a doc comes in, reviews carry over for anything whose evidence didn't change.
 
 Implementation details are in [LLD.md](./LLD.md).
 
@@ -21,13 +22,20 @@ Everything runs with `docker compose up`. If I deploy: api + worker + redis on R
 
 ### Notes on the stack
 
-**Prisma 7, not 8.** `npm i prisma` currently installs Prisma 8, which is still a release candidate and changes the query API. Pinning 7. Things to remember with 7: it needs `prisma.config.ts`, it needs the pg driver adapter (`@prisma/adapter-pg`), and it doesn't load .env on its own.
+**Prisma 7, not 8.** `npm i prisma` currently installs Prisma 8, which is still a release candidate and changes the
+query API. Pinning 7. Things to remember with 7: it needs `prisma.config.ts`, it needs the pg driver adapter (
+`@prisma/adapter-pg`), and it doesn't load .env on its own.
 
-**Redis.** Locally it's the official `redis:8-alpine` image with `--maxmemory-policy noeviction` (BullMQ needs that). For hosting I'd put Redis on Railway next to the worker. Skipping the Upstash free tier, BullMQ workers poll a lot and would burn through 500k commands/month fast. Redis Cloud free (30MB) is the fallback.
+**Redis.** Locally it's the official `redis:8-alpine` image with `--maxmemory-policy noeviction` (BullMQ needs that).
+For hosting I'd put Redis on Railway next to the worker. Skipping the Upstash free tier, BullMQ workers poll a lot and
+would burn through 500k commands/month fast. Redis Cloud free (30MB) is the fallback.
 
-**Supabase.** Not needed to build or run anything, it's just Postgres. Local dev and compose use a postgres container, and migrations + seed run automatically in compose. If it goes on Supabase: session pooler (port 5432) for api and worker since they're long running processes, and free projects pause after a week with no activity.
+**Supabase.** Not needed to build or run anything, it's just Postgres. Local dev and compose use a postgres container,
+and migrations + seed run automatically in compose. If it goes on Supabase: session pooler (port 5432) for api and
+worker since they're long running processes, and free projects pause after a week with no activity.
 
-**Gemini.** `@google/genai` with `responseMimeType: "application/json"` and a schema. Gemini treats schema fields as optional unless they're marked required, so every field is required and "not found" is null.
+**Gemini.** `@google/genai` with `responseMimeType: "application/json"` and a schema. Gemini treats schema fields as
+optional unless they're marked required, so every field is required and "not found" is null.
 
 ## Architecture
 
@@ -41,7 +49,9 @@ flowchart LR
   worker -- "1 call" --> llm["Gemini"]
 ```
 
-Main rule: postgres owns all the state that matters (docs, versions, parsed text, values, reviews, job status, errors). Redis only carries "extract version X" messages. If redis loses everything, a reconciler in the worker re-adds whatever postgres says isn't done yet.
+Main rule: postgres owns all the state that matters (docs, versions, parsed text, values, reviews, job status, errors).
+Redis only carries "extract version X" messages. If redis loses everything, a reconciler in the worker re-adds whatever
+postgres says isn't done yet.
 
 ## Repo layout
 
@@ -93,18 +103,26 @@ The full rules are in the three CLAUDE.md files. Short version:
 
 ## docker compose
 
-- postgres: `postgres:17-alpine`, named volume, `pg_isready` healthcheck
+- postgres: `postgres:17-alpine`, user/password `postgres`/`postgres`, database `lomi-pdf-extractor`, named volume,
+  `pg_isready` healthcheck. Host port 5433 by default (`POSTGRES_PORT`) so it doesn't fight a native postgres on 5432
 - redis: `redis:8-alpine` with noeviction and appendonly
 - migrate: `prisma migrate deploy`, then the seed (v1 of each fixture), then exits. Seed is idempotent
 - api (4000), worker, web (3000): start after migrate finishes
+- one root `Dockerfile`, a target per app, `turbo prune <app> --docker` first. Internal packages ship TS source: the
+  api is bundled with tsdown (workspace packages inlined), web uses Next `transpilePackages` + `output: standalone`.
+  `API_URL` is a build arg for web because Next bakes rewrites in at build time
 
 Only `GEMINI_API_KEY` has to be set. Everything else has a default in `.env.example`.
 
 ## Flows
 
-**Upload.** One transaction writes the doc + version (pdf bytes, sha256, status queued). After commit, enqueue with jobId = versionId and return 202. If the enqueue fails it still returns 202, the row is queued and the reconciler will pick it up.
+**Upload.** One transaction writes the doc + version (pdf bytes, sha256, status queued). After commit, enqueue with
+jobId = versionId and return 202. If the enqueue fails it still returns 202, the row is queued and the reconciler will
+pick it up.
 
-**Extract (worker).** Claim the version (queued -> extracting, attempts + 1, set a lease). Parse and store the text once. Call Gemini, save the prompt and raw response. Validate every field. Then write values + carry-over + status in one transaction behind a fencing check.
+**Extract (worker).** Claim the version (queued -> extracting, attempts + 1, set a lease). Parse and store the text
+once. Call Gemini, save the prompt and raw response. Validate every field. Then write values + carry-over + status in
+one transaction behind a fencing check.
 
 **Review.** Append a review row: approve, or correct with a value and an optional note. Latest review wins.
 
@@ -112,49 +130,64 @@ Only `GEMINI_API_KEY` has to be set. Everything else has a default in `.env.exam
 
 ## Failure cases
 
-| what happens | state left | how it recovers |
-| --- | --- | --- |
-| enqueue fails after commit | version queued, nothing in redis | reconciler re-adds queued versions (same jobId, no dupes) |
-| worker killed mid LLM call | version extracting, lease running | lease expires, reconciler puts it back to queued. After MAX_ATTEMPTS it goes to failed |
-| docker compose restart | same as above | reconciler runs on worker boot |
-| FLUSHALL + restart | redis empty, postgres fine | same reconciler, nothing important was in redis |
-| same version run twice | two workers or a retry race | conditional claim, fencing check on commit, unique(version_id, field). Second run writes nothing |
-| gemini error / timeout / bad JSON | exception in worker | caught, version -> failed with the error, retry button in the UI |
-| PDF has no text | exception in parse | failed with "no extractable text (scanned PDF?)" |
-| postgres down | worker can't claim | bullmq retries with backoff, nothing half written |
-| new version uploaded mid extraction | old version superseded | old worker's commit fails the fencing check, result dropped |
+| what happens                        | state left                        | how it recovers                                                                                  |
+|-------------------------------------|-----------------------------------|--------------------------------------------------------------------------------------------------|
+| enqueue fails after commit          | version queued, nothing in redis  | reconciler re-adds queued versions (same jobId, no dupes)                                        |
+| worker killed mid LLM call          | version extracting, lease running | lease expires, reconciler puts it back to queued. After MAX_ATTEMPTS it goes to failed           |
+| docker compose restart              | same as above                     | reconciler runs on worker boot                                                                   |
+| FLUSHALL + restart                  | redis empty, postgres fine        | same reconciler, nothing important was in redis                                                  |
+| same version run twice              | two workers or a retry race       | conditional claim, fencing check on commit, unique(version_id, field). Second run writes nothing |
+| gemini error / timeout / bad JSON   | exception in worker               | caught, version -> failed with the error, retry button in the UI                                 |
+| PDF has no text                     | exception in parse                | failed with "no extractable text (scanned PDF?)"                                                 |
+| postgres down                       | worker can't claim                | bullmq retries with backoff, nothing half written                                                |
+| new version uploaded mid extraction | old version superseded            | old worker's commit fails the fencing check, result dropped                                      |
 
-Known limitation: after a hard kill the doc shows `extracting` until the lease runs out (`LEASE_SECONDS`). That's still visible and it does get retried, so it's never stuck for good. With a single worker, boot can requeue all extracting rows right away.
+Known limitation: after a hard kill the doc shows `extracting` until the lease runs out (`LEASE_SECONDS`). That's still
+visible and it does get retried, so it's never stuck for good. With a single worker, boot can requeue all extracting
+rows right away.
 
 ## Decisions
 
 ### Where the redis / postgres line is
 
-BullMQ can track job state and results itself, but all of that is gone after a FLUSHALL. So job state lives in postgres and redis only has messages. The reconciler rebuilds the queue from postgres. A postgres-only queue (SKIP LOCKED) would also work, but the brief asks for redis. An outbox table is what I'd move to at bigger scale.
+BullMQ can track job state and results itself, but all of that is gone after a FLUSHALL. So job state lives in postgres
+and redis only has messages. The reconciler rebuilds the queue from postgres. A postgres-only queue (SKIP LOCKED) would
+also work, but the brief asks for redis. An outbox table is what I'd move to at bigger scale.
 
 ### Idempotency
 
-BullMQ jobId dedupe only works while the job still exists in redis, so it can't be the guarantee. The real guarantee is the conditional claim, the fencing check at commit (attempt matches, status still extracting) and unique(version_id, field). Never delete-and-reinsert values on a rerun, that would wipe reviews.
+BullMQ jobId dedupe only works while the job still exists in redis, so it can't be the guarantee. The real guarantee is
+the conditional claim, the fencing check at commit (attempt matches, status still extracting) and unique(version_id,
+field). Never delete-and-reinsert values on a rerun, that would wipe reviews.
 
 ### Corrections
 
-Corrections are stored next to the value, not over it. The LLM value stays as is, the review row has the corrected value and a note. Effective value = latest correction, else the LLM value. This keeps what the model said separate from what a person said, and makes carry-over simple.
+Corrections are stored next to the value, not over it. The LLM value stays as is, the review row has the corrected value
+and a note. Effective value = latest correction, else the LLM value. This keeps what the model said separate from what a
+person said, and makes carry-over simple.
 
 ### What "unchanged" means
 
-Invoice v2 adds "(REVISED)" to the title and a whole new paragraph, so offsets shift. Comparing positions doesn't work, and diffing the whole document flags everything. Going with: same value AND (same quote text after whitespace normalisation OR the old quote still appears somewhere in the new text). No fuzzy matching, it would happily call $5,230.28 the same as $5,230.29.
+Invoice v2 adds "(REVISED)" to the title and a whole new paragraph, so offsets shift. Comparing positions doesn't work,
+and diffing the whole document flags everything. Going with: same value AND (same quote text after whitespace
+normalisation OR the old quote still appears somewhere in the new text). No fuzzy matching, it would happily
+call $5,230.28 the same as $5,230.29.
 
 ### New version while the old one is extracting
 
-Supersede. The upload is accepted right away, the older in-flight version is marked superseded and only the newest one gets extracted. If the old run finishes late, the fencing check drops its result. Queueing would extract something nobody reviews, and rejecting would make uploads not instant.
+Supersede. The upload is accepted right away, the older in-flight version is marked superseded and only the newest one
+gets extracted. If the old run finishes late, the fencing check drops its result. Queueing would extract something
+nobody reviews, and rejecting would make uploads not instant.
 
 ### Parsed text
 
-Stored per version, never re-parsed. Version N's evidence has to keep working after N+1 exists, and a parser update could change whitespace.
+Stored per version, never re-parsed. Version N's evidence has to keep working after N+1 exists, and a parser update
+could change whitespace.
 
 ### Polling
 
-The UI polls every 2s only while something is queued or extracting, and stops after. Jobs take seconds and there's one reviewer, so SSE / websockets aren't worth the extra moving parts here. Would revisit at scale.
+The UI polls every 2s only while something is queued or extracting, and stops after. Jobs take seconds and there's one
+reviewer, so SSE / websockets aren't worth the extra moving parts here. Would revisit at scale.
 
 ### Packages
 

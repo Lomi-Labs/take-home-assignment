@@ -6,7 +6,8 @@ the `/api` rewrite.
 
 ## Commands
 
-- Dev against the real API: `pnpm --filter web dev` (needs the api running, `API_URL` defaults to `http://localhost:4000`)
+- Dev against the real API: `pnpm --filter web dev` (needs the api running, `API_URL` defaults to
+  `http://localhost:4000`)
 - Dev fully mocked (no backend, no Gemini key): `NEXT_PUBLIC_API_MODE=mock pnpm --filter web dev`
 - Lint: `pnpm --filter web lint` · Types: `pnpm --filter web typecheck`
 - Unit tests: `pnpm --filter web test`

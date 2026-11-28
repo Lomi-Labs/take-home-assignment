@@ -1,0 +1,78 @@
+# Whole stack: docker compose up --build
+# Dev with hot reload: docker compose up -d postgres redis, then pnpm dev
+# Every setting has a default; override in a root .env (see .env.example).
+
+name: lomi-pdf-extractor
+
+services:
+    postgres:
+        image: postgres:17-alpine
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER:-postgres}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+            POSTGRES_DB: ${POSTGRES_DB:-lomi-pdf-extractor}
+        ports:
+            - "${POSTGRES_PORT:-5433}:5432"
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+            interval: 5s
+            timeout: 3s
+            retries: 10
+
+    redis:
+        image: redis:8-alpine
+        # BullMQ needs noeviction or it can lose jobs; appendonly survives restarts.
+        command: ["redis-server", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+        ports:
+            - "${REDIS_PORT:-6379}:6379"
+        volumes:
+            - redis-data:/data
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 3s
+            retries: 10
+
+    api:
+        build:
+            context: .
+            target: api
+            args:
+                APP: api
+        environment:
+            NODE_ENV: production
+            PORT: 4000
+            LOG_LEVEL: info
+            DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-lomi-pdf-extractor}
+            REDIS_URL: redis://redis:6379
+        ports:
+            - "${API_PORT:-4000}:4000"
+        depends_on:
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
+            interval: 5s
+            timeout: 3s
+            retries: 10
+
+    web:
+        build:
+            context: .
+            target: web
+            args:
+                APP: web
+                API_URL: http://api:4000
+        ports:
+            - "${WEB_PORT:-3000}:3000"
+        depends_on:
+            api:
+                condition: service_healthy
+
+volumes:
+    postgres-data:
+    redis-data:

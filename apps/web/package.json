@@ -1,0 +1,27 @@
+{
+    "name": "web",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "next dev --port 3000",
+        "build": "next build",
+        "start": "next start --port 3000",
+        "lint": "eslint .",
+        "typecheck": "next typegen && tsc"
+    },
+    "dependencies": {
+        "next": "16.4.6",
+        "react": "19.3.1",
+        "react-dom": "19.3.1"
+    },
+    "devDependencies": {
+        "@app/eslint-config": "workspace:*",
+        "@app/tsconfig": "workspace:*",
+        "@types/node": "22.20.7",
+        "@types/react": "19.3.3",
+        "@types/react-dom": "19.3.0",
+        "eslint": "10.15.0",
+        "typescript": "6.0.3"
+    }
+}

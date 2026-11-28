@@ -97,7 +97,7 @@ tests.
 - Audit columns on every table, declared the same way on every model (Prisma has no mixins, so copy the block exactly):
 
   | Column | Type | Set by |
-  | --- | --- | --- |
+    | --- | --- | --- |
   | `created_at` | `TIMESTAMPTZ NOT NULL` | DB default `now()` |
   | `created_by` | `UUID NOT NULL` | DB default `SYSTEM_USER_ID`; services pass the actor |
   | `updated_at` | `TIMESTAMPTZ NOT NULL` | Prisma `@updatedAt` + the `set_updated_at` trigger (covers raw SQL) |
@@ -151,7 +151,8 @@ tests.
 ## API conventions
 
 - Routes: `POST /documents`, `POST /documents/:id/versions`, `GET /documents`, `GET /documents/:id`,
-  `GET /documents/:id/versions`, `GET /documents/:id/progress`, `POST /documents/:id/retry`, `POST /values/:id/review`.
+  `GET /documents/:id/versions`, `GET /documents/:id/progress`, `POST /documents/:id/retry`, `POST /values/:id/review`,
+  `GET /health`.
 - Status codes are deliberate: 202 accepted for async work, 201 create, 404 not found, 409 conflict (wrong state, old
   version), 413 file too large, 415 not a PDF, 422 validation.
 - Every response is parsed through its contracts schema before sending. Never send a Prisma object or an ad-hoc object.

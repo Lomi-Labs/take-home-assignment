@@ -62,8 +62,9 @@ fixtures/           as provided by the brief; read by the seed, never edited
 - Files and folders: kebab-case. Variables/functions: camelCase. Types, classes, React components: PascalCase.
   Constants: UPPER_SNAKE. DB tables/columns: snake_case (Prisma `@map`). Error codes: snake_case strings.
   API JSON: camelCase.
-- 4-space indent in all code and config files. Prettier: printWidth 120, single quotes, semicolons, trailing commas.
-- Imports: workspace packages by name (`@app/core`), inside an app the `@/` alias. No deep relative paths across folders.
+- 4-space indent in all code and config files. Prettier: printWidth 120, double quotes, semicolons, trailing commas.
+- Imports: workspace packages by name (`@app/core`), inside an app the `@/` alias. No deep relative paths across
+  folders.
 - No `any`. zod at every boundary: HTTP input, LLM output, env, API responses.
 - Env only through each app's `config.ts`. `.env` is gitignored, `.env.example` lists every key with safe defaults.
   Only `GEMINI_API_KEY` should be needed to run the stack.
@@ -83,6 +84,11 @@ small. Say why in the commit when adding a dependency.
 ## Gotchas
 
 - Prisma is pinned to 7. `pnpm add prisma` would pull 8 (release candidate, different API). Never bump it.
+- TypeScript is pinned to 6.0.x: typescript-eslint supports `<6.1`. Don't take TS 7 until it does.
+- Dependencies are pinned to exact versions. pnpm 12 refuses very fresh releases (`minimumReleaseAge`) and silently
+  adds a `minimumReleaseAgeExclude` block to `pnpm-workspace.yaml`; pick an older patch instead of keeping that block.
+- Internal packages export TypeScript source (`exports: ./src/index.ts`), no build step. The api bundles them with
+  tsdown (`deps.alwaysBundle`), web through `transpilePackages`. Env vars a build reads must be in turbo's `env` list.
 - `create-next-app` refuses a non-empty folder: scaffold `apps/web` in a temp dir and move it in, keeping
   `apps/web/CLAUDE.md`.
 - Docker images build from the repo root with `turbo prune <app> --docker`, never from inside `apps/<app>`.
