@@ -1,0 +1,57 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+out/
+.next/
+*.tsbuildinfo
+next-env.d.ts
+
+# turborepo
+.turbo/
+
+# prisma generated client
+packages/db/src/generated/
+
+# env (keep .env.example)
+.env
+.env.*
+!.env.example
+
+# tests and coverage
+coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+.vitest/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local data
+*.sqlite
+*.db
+.data/
+docker-volumes/
+
+# agent and tool output
+.playwright-mcp/
+.switch/
+.claude/settings.local.json
+
+# editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+.DS_Store
+Thumbs.db
